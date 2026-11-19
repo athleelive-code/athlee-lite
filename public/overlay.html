@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AthleeLive Lite — オーバーレイ</title>
+<!--
+  OBS のブラウザソースに貼る画面。背景は透明。
+  URL のうしろに付けられるもの：
+    ?pos=tl|tr|bl|br   置く場所（既定は左上 tl）
+    ?scale=1.2         大きさ（既定は 1）
+    ?line=1            イニングスコア表も出す
+    ?demo=1            つながっていなくても見本を表示（位置合わせ用）
+-->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:transparent;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  color:#fff;-webkit-font-smoothing:antialiased}
+
+#wrap{position:fixed;display:inline-block;transform-origin:top left;
+  filter:drop-shadow(0 3px 10px rgba(0,0,0,.55))}
+#wrap.tl{top:24px;left:24px}
+#wrap.tr{top:24px;right:24px;transform-origin:top right}
+#wrap.bl{bottom:24px;left:24px;transform-origin:bottom left}
+#wrap.br{bottom:24px;right:24px;transform-origin:bottom right}
+
+/* スコア表 */
+.score{display:flex;align-items:stretch;border-radius:6px;overflow:hidden;
+  background:rgba(22,27,34,.92);min-width:330px}
+.inn{width:62px;background:#c8102e;display:flex;align-items:center;justify-content:center;gap:3px}
+.inn .n{font-size:38px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.inn .tb{display:flex;flex-direction:column;gap:3px;font-size:12px;line-height:1}
+.inn .tb i{opacity:.3;font-style:normal}
+.inn .tb i.on{opacity:1}
+.teams{flex:1;display:flex;flex-direction:column;justify-content:center}
+.trow{display:flex;align-items:center;height:37px;padding-left:12px;
+  border-bottom:1px solid rgba(255,255,255,.08)}
+.trow:last-child{border-bottom:none}
+.trow .bat{width:5px;height:22px;border-radius:3px;background:transparent;margin-right:9px;flex:none}
+.trow.at .bat{background:#f5c518}
+.trow .nm{flex:1;font-size:21px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:240px;padding-right:12px}
+.trow .pt{width:52px;text-align:center;font-size:25px;font-weight:800;font-variant-numeric:tabular-nums;
+  background:rgba(255,255,255,.07);align-self:stretch;display:flex;align-items:center;justify-content:center}
+
+/* BSO ＋ ダイヤモンド */
+.bar{display:flex;align-items:center;gap:16px;margin-top:4px;padding:7px 14px;
+  background:rgba(22,27,34,.92);border-radius:6px;width:fit-content}
+.bso{display:flex;flex-direction:column;gap:5px}
+.bso .ln{display:flex;align-items:center;gap:7px}
+.bso .lb{width:12px;font-size:12px;font-weight:800;color:#8b949e}
+.bso i{width:13px;height:13px;border-radius:50%;background:#30363d;display:block}
+.bso .b i.on{background:#3fb950}
+.bso .s i.on{background:#f5c518}
+.bso .o i.on{background:#f85149}
+.dia{width:68px;height:52px}
+.dia .base{fill:rgba(255,255,255,.08);stroke:rgba(255,255,255,.5);stroke-width:2}
+.dia .base.on{fill:#f5c518;stroke:#c99a0a}
+
+/* イニングスコア表（?line=1） */
+.line{margin-top:4px;background:rgba(22,27,34,.92);border-radius:6px;padding:7px 10px;display:none}
+.line.show{display:block}
+.line table{border-collapse:collapse;font-variant-numeric:tabular-nums}
+.line td{min-width:25px;height:21px;text-align:center;font-size:14px;font-weight:700;
+  border-right:1px solid rgba(255,255,255,.08)}
+.line td:last-child{border-right:none}
+.line tr.num td{font-size:10px;font-weight:600;color:#8b949e;height:15px}
+.line td.cur{color:#f5c518}
+</style>
+</head>
+<body>
+
+<div id="wrap" class="tl">
+  <div class="score">
+    <div class="inn">
+      <span class="n" id="inn">1</span>
+      <span class="tb"><i id="t-top" class="on">▲</i><i id="t-bot">▼</i></span>
+    </div>
+    <div class="teams">
+      <div class="trow at" id="row-away">
+        <span class="bat"></span>
+        <span class="nm" id="nm-away">先攻</span>
+        <span class="pt" id="pt-away">0</span>
+      </div>
+      <div class="trow" id="row-home">
+        <span class="bat"></span>
+        <span class="nm" id="nm-home">後攻</span>
+        <span class="pt" id="pt-home">0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <div class="bso">
+      <div class="ln b"><span class="lb">B</span><i id="b1"></i><i id="b2"></i><i id="b3"></i></div>
+      <div class="ln s"><span class="lb">S</span><i id="s1"></i><i id="s2"></i></div>
+      <div class="ln o"><span class="lb">O</span><i id="o1"></i><i id="o2"></i></div>
+    </div>
+    <svg class="dia" viewBox="0 0 120 92">
+      <rect class="base" id="base-2" x="51" y="8"  width="20" height="20" rx="4" transform="rotate(45 61 18)"/>
+      <rect class="base" id="base-1" x="88" y="42" width="20" height="20" rx="4" transform="rotate(45 98 52)"/>
+      <rect class="base" id="base-3" x="14" y="42" width="20" height="20" rx="4" transform="rotate(45 24 52)"/>
+      <rect x="54" y="76" width="14" height="14" rx="3" transform="rotate(45 61 83)" fill="rgba(255,255,255,.35)"/>
+    </svg>
+  </div>
+
+  <div class="line" id="line"></div>
+</div>
+
+<script src="link.js"></script>
+<script>
+'use strict';
+var g = function(id){ return document.getElementById(id); };
+var q = new URLSearchParams(location.search);
+
+// 置き場所と大きさ
+var pos = (q.get('pos') || 'tl').toLowerCase();
+if(['tl','tr','bl','br'].indexOf(pos) < 0) pos = 'tl';
+g('wrap').className = pos;
+var scale = parseFloat(q.get('scale') || '1');
+if(!(scale > 0.2 && scale < 5)) scale = 1;
+g('wrap').style.transform = 'scale(' + scale + ')';
+if(q.get('line') === '1') g('line').classList.add('show');
+
+// 受け取った状態を画面に出す
+function paint(S){
+  if(!S) return;
+  g('inn').textContent = S.inn;
+  g('t-top').className = S.top ? 'on' : '';
+  g('t-bot').className = S.top ? '' : 'on';
+
+  g('nm-away').textContent = (S.away && S.away.name) || '先攻';
+  g('nm-home').textContent = (S.home && S.home.name) || '後攻';
+  g('row-away').className = 'trow' + (S.top ? ' at' : '');
+  g('row-home').className = 'trow' + (S.top ? '' : ' at');
+
+  function sum(side){
+    if(!side || !Array.isArray(side.runs)) return 0;
+    return side.runs.reduce(function(a, v){ return a + (typeof v === 'number' ? v : 0); }, 0);
+  }
+  g('pt-away').textContent = sum(S.away);
+  g('pt-home').textContent = sum(S.home);
+
+  for(var i = 1; i <= 3; i++) g('b' + i).className = (i <= (S.b || 0)) ? 'on' : '';
+  for(var j = 1; j <= 2; j++){
+    g('s' + j).className = (j <= (S.s || 0)) ? 'on' : '';
+    g('o' + j).className = (j <= (S.o || 0)) ? 'on' : '';
+  }
+
+  var r = Array.isArray(S.r) ? S.r : [false,false,false];
+  [1,2,3].forEach(function(n){
+    g('base-' + n).setAttribute('class', 'base' + (r[n-1] ? ' on' : ''));
+  });
+
+  // イニングスコア表（?line=1 のときだけ）
+  var box = g('line');
+  if(!box.classList.contains('show')) return;
+  var n2 = Math.max(S.maxInn || 7, S.inn || 1);
+  var h = '<table><tr class="num">';
+  for(var k = 0; k < n2; k++) h += '<td>' + (k + 1) + '</td>';
+  h += '</tr>';
+  ['away','home'].forEach(function(key){
+    var arr = (S[key] && S[key].runs) || [];
+    h += '<tr>';
+    for(var k = 0; k < n2; k++){
+      var v = arr[k];
+      var cur = (k + 1 === S.inn) && ((key === 'away') === !!S.top);
+      h += '<td class="' + (cur ? 'cur' : '') + '">' + (typeof v === 'number' ? v : '') + '</td>';
+    }
+    h += '</tr>';
+  });
+  h += '</table>';
+  if(box.innerHTML !== h) box.innerHTML = h;
+}
+
+// つなぐ。開いたら「今の状態をください」と頼む
+var link = createLink({
+  onOpen: function(){ link.send({t:'hello'}); },
+  onMessage: function(m){ if(m && m.t === 'state') paint(m.s); }
+});
+link.connect();
+
+// 位置合わせ用の見本（?demo=1）
+if(q.get('demo') === '1'){
+  paint({
+    inn:3, top:false, maxInn:7, b:2, s:1, o:1, r:[true,false,true],
+    away:{name:'青空高校', runs:[2,0,0]},
+    home:{name:'港東高校', runs:[0,1,null]}
+  });
+}
+</script>
+</body>
+</html>
